@@ -1,0 +1,1700 @@
+
+
+Var ODBCDriver;
+Var TableGoodsItems; 
+Var TableSpecialPrice;     
+
+Var priceCategory1,priceCategory2,priceCategory3; 
+Var FULLUPDATE;
+
+Var мФайлЖурнала,мИмяЖурнала;
+
+//=================================================
+Function DateSQL(DD)
+	
+	priceDate = Format(DD,"DYYYYMMDD");
+	priceDate = ""+Mid(priceDate,1,4)+"-"+Mid(priceDate,5,2)+"-"+Mid(priceDate,7,2); 
+	
+	Return priceDate;
+	
+EndFunction
+
+//=================================================
+procedure Log(State="", MessageText)
+	
+	If TrimAll(State) = "" Then
+		State = " ";
+	EndIf;
+	
+	ТекстЛог = ""+State+" "+ТекущееВремя()+" "+MessageText;
+	
+	мФайлЖурнала.ДобавитьСтроку(ТекстЛог);
+	мФайлЖурнала.Записать(мИмяЖурнала);
+	
+	Сообщить(ТекстЛог);
+	
+endProcedure
+
+//=================================================
+Функция StringFromUTF8(Стр) 
+	
+    Длина=СтрДлина(Стр);
+    
+	Итог="";
+    Для Н=1 По Длина Цикл 
+		
+        Знак	= Сред(Стр,Н,1);
+        Код		= КодСимв(Знак);
+        
+		Если Код<128 Тогда
+            Итог=Итог+Знак;
+        ИначеЕсли (Код>=128)И(Код<192) Тогда
+        
+		Иначе
+            Н=Н+1;
+            Знак2=Сред(Стр,Н,1);
+            Код2=КодСимв(Знак2);
+            Если Код=208 Тогда
+                Если Код2=129 Тогда Итог=Итог+"Ё";
+                Иначе Итог=Итог+Симв(КодСимв("А")+Код2-144);
+                КонецЕсли;
+            ИначеЕсли Код=209 Тогда
+                Если Код2=145 Тогда Итог=Итог+"ё";
+                Иначе Итог=Итог+Симв(КодСимв("р")+Код2-128);
+                КонецЕсли;
+            КонецЕсли;
+		КонецЕсли;
+		
+	КонецЦикла;
+	
+    Возврат Итог;
+КонецФункции
+
+//=================================================
+Функция StringToUTF8(Стр)
+    Длина=СтрДлина(Стр);
+    Итог="";
+    Для Н=1 По Длина Цикл
+        Знак=Сред(Стр,Н,1);
+        Код=КодСимв(Знак);
+        Если Код<128 Тогда
+            Итог=Итог+Знак;
+        Иначе
+            Если (Код>=КодСимв("А"))И(Код<=КодСимв("п")) Тогда
+                Итог=Итог+Симв(208)+Симв(144+Код-КодСимв("А"));
+            ИначеЕсли (Код>=КодСимв("р"))И(Код<=КодСимв("я")) Тогда
+                Итог=Итог+Симв(209)+Симв(128+Код-КодСимв("р"));
+            ИначеЕсли (Знак="ё") Тогда
+                Итог=Итог+Симв(209)+Симв(145);
+            ИначеЕсли (Знак="Ё") Тогда
+                Итог=Итог+Симв(208)+Симв(129);
+            КонецЕсли;
+        КонецЕсли;
+    КонецЦикла;
+    Возврат Итог;
+КонецФункции      
+
+//=================================================
+Функция StringToUpload(Стр)
+	
+	//Стр = СтрЗаменить(Стр,"і","i"); 
+	//Стр = СтрЗаменить(Стр,"ї","i");
+	//Стр = СтрЗаменить(Стр,"І","I");
+	//Стр = СтрЗаменить(Стр,"є","е"); 
+	//Стр = СтрЗаменить(Стр,"Є","Е"); 
+	Стр = СтрЗаменить(Стр,",","."); 
+	Стр = СтрЗаменить(Стр,"""",""); 
+	Стр = СтрЗаменить(Стр,"'","`");
+	
+	//Стр = StringToUTF8(СокрЛП(Стр));  //with driver 5.1 no need to convert
+	Стр = СтрЗаменить(Стр,","," "); 
+	Если ПустаяСтрока(Стр) = 1 Тогда
+		Стр = "";
+	КонецЕсли;
+	
+	Возврат Стр;
+КонецФункции
+
+//*******************************************
+function initODBCDriver() 
+		
+	Server = "***";
+	DBName = "***";
+	DBUser = "***";
+	Password = "***"; 
+	
+	//Log(">","Try connection to "+Server);
+	              
+	try            
+		
+		ODBCDriver = createObject("ADODB.Connection");
+		//ConnectionString = 
+		//	"Driver={MySQL ODBC 3.51 Driver};Server="+trimAll(Server)+
+		//	";Database="+trimAll(DBName)+
+		//	";User="+trimAll(DBUser)+
+		//	";Password="+trimAll(Password)+
+		//	";Option=3;CharSet=utf8;STMT=set character_set_results=utf8;";
+		
+		ConnectionString = 
+			"Driver={MySQL ODBC 5.1 Driver};Server="+trimAll(Server)+
+			";Database="+trimAll(DBName)+
+			";User="+trimAll(DBUser)+
+			";Password="+trimAll(Password)+
+			";Option=3;CharSet=utf8;"; //STMT=set character_set_results=utf8;";
+			
+		ODBCDriver.Open(ConnectionString); 
+		
+	except
+		Log("!","ODBC: "+getErrorDescription());   
+		return 0;
+	endTry;
+   
+	return 1;
+	
+endFunction   
+
+//*******************************************
+procedure testConnection()
+	
+	if initODBCDriver() <> 1 then
+		return;
+	endif;
+	
+	DoMessageBox("secсess",5); 
+	
+endProcedure  
+
+//==================================================
+Procedure SetOrderStatus(order_id,status_id) 
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;
+	
+	Stream.CommandText ="UPDATE oc_order SET order_status_id="+status_id+" WHERE order_id="+order_id;
+	Stream.Execute();  
+					
+EndProcedure
+      
+//==================================================
+Procedure GetOrderContent(order_id,order_object) 
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;  
+	                  
+	taxRate = глПроцентНДС(Const.ОсновнаяСтавкаНДС);
+	rewardTotal = 0;
+	
+	Goods = CreateObject("Справочник.Номенклатура");
+	
+	Recordset.Open("SELECT 
+					|oc_order_product.product_id, 
+					|CAST(oc_order_product.quantity AS CHAR) AS quantity, 
+					|CAST(oc_order_product.price AS CHAR) AS price, 
+					|CAST(oc_order_product.discount_amount AS CHAR) AS discount_amount,
+					|CAST(oc_order_product.total AS CHAR) AS total, 
+					|CAST(oc_order_product.reward AS CHAR) AS reward,
+					|oc_product.model AS model
+					|FROM oc_order_product 
+					|LEFT JOIN oc_product 
+					|	ON oc_order_product.product_id = oc_product.product_id
+					|WHERE order_id="+order_id); 
+					
+	If Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do 
+			
+			model 		= Left(Recordset.Fields("model").Value+"              ",15);
+			quantity	= Number(Recordset.Fields("quantity").Value);
+			price		= Number(Recordset.Fields("price").Value); 
+			discount	= Number(Recordset.Fields("discount_amount").Value);
+			reward		= Number(Recordset.Fields("reward").Value);    
+			
+			//rewardTotal = rewardTotal + reward;
+			
+			item = "";
+			If Goods.findByAttribute("КодМаркет",model,1) = 1 Then
+				item = Goods.CurrentItem();
+			EndIf;
+			
+			order_object.НоваяСтрока();  
+			
+			order_object.Товар 	= item;
+			
+			глПриИзмененииТовара(order_object);
+			
+			order_object.Количество 	= quantity;  
+			order_object.ЦенаСНДС		= price;    
+			order_object.Коэффициент 	= 1;   
+			
+			глВыч_суммы_накл(order_object,1);  
+			
+			order_object.СуммаСкидки 	= discount;
+			order_object.СуммаБезНДС 	= order_object.СуммаБезСкидки-order_object.СуммаСкидки;  
+			order_object.СуммаСНДС 		= order_object.СуммаБезНДС*(100+taxRate)/100;
+			
+			Recordset.MoveNext(); 
+			
+		EndDo;
+		
+	EndIf;
+	
+	Recordset.Close();  
+	
+	//getting reward total (cashback)
+	Recordset.Open("SELECT 
+				|CAST(value AS CHAR) AS value 
+				|FROM oc_order_total 
+				|WHERE code='reward' AND order_id="+order_id); 
+				
+	If Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		rewardTotal = -1 * Number(Recordset.Fields("value").Value);    
+		
+	EndIf;
+	
+	Recordset.Close();  
+	
+	order_object.Кешбек = rewardTotal;
+	
+EndProcedure
+      
+//==================================================
+Procedure LoadOrders()
+	
+	if initODBCDriver() <> 1 then
+		return;
+	endif; 
+	
+	//Log("","Checking orders");
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;    
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;
+	
+	Goods = CreateObject("Справочник.Номенклатура");
+	
+	i = 0; code = 0; name = ""; upd = 0; product_id=0;
+		
+	Recordset.Open("SELECT 
+					|order_id, 
+					|invoice_no, 
+					|customer_id, 
+					|firstname, 
+					|lastname, 
+					|email, 
+					|telephone, 
+					|shipping_method,
+					|shipping_address_1,
+					|shipping_address_2,
+					|shipping_city,
+					|shipping_postcode,
+					|shipping_country,
+					|payment_company,
+					|order_status_id 
+					|FROM oc_order
+					|WHERE order_status_id=1");
+	     
+	
+	if Recordset.EOF()=0 then   
+		
+		//Log("","Got new orders data, loading...");
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do  
+			
+			order_id 	= Recordset.Fields("order_id").Value;
+			invoice_no	= Recordset.Fields("invoice_no").Value;
+			customer_id	= Recordset.Fields("customer_id").Value;
+			firstname	= StringFromUTF8(Recordset.Fields("firstname").Value);
+			lastname	= StringFromUTF8(Recordset.Fields("lastname").Value);
+			email		= Recordset.Fields("email").Value;
+			telephone	= Recordset.Fields("telephone").Value;
+			
+			shipping_method		= StringFromUTF8(Recordset.Fields("shipping_method").Value);
+			shipping_address_1	= StringFromUTF8(Recordset.Fields("shipping_address_1").Value);
+			shipping_address_2	= StringFromUTF8(Recordset.Fields("shipping_address_2").Value);
+			shipping_city		= StringFromUTF8(Recordset.Fields("shipping_city").Value);
+			shipping_postcode	= Recordset.Fields("shipping_postcode").Value;
+			shipping_country	= StringFromUTF8(Recordset.Fields("shipping_country").Value);
+			payment_company		= StringFromUTF8(Recordset.Fields("payment_company").Value);  
+			
+			info = ""+payment_company+";
+			|"+lastname+" "+firstname+"; 
+			|"+telephone+"; 
+			|"+shipping_address_1+" "+shipping_address_2+"; 
+			|"+shipping_city+"; "+shipping_postcode+" "+shipping_country; 
+			
+			Док = СоздатьОБъект("Документ.Заявка");  
+			
+			SearchDoc = CreateObject("Document");
+			    
+			isNew = 1;
+			document_id = Left(""+order_id+"                    ",20);
+			If SearchDoc.SelectByValue(РабочаяДата()-7,,"Идентификатор",document_id) = 1 Then
+				While SearchDoc.GetDocument() = 1 Do
+					If Док.НайтиДокумент(SearchDoc.CurrentDocument()) = 1 Then
+						isNew = 0;
+						Break;
+					EndIf;
+				EndDo;
+			EndIf; 
+			
+			If isNew = 1 Then
+				Док.Новый(); 
+			ElsIf Док.Проведен() = 1 Тогда
+				SetOrderStatus(order_id,2);
+				Recordset.MoveNext();  
+				Log("","Document is processed, skipping... #"+TrimAll(Док.НомерДок)+" ("+Док.ДатаДок+")");
+                Continue;
+			EndIf;
+			
+			глЗаполнитьШапку(Док);  
+			
+			Док.ДатаДок	= РабочаяДата();  
+			
+			Док.ДопИнформация 	= info; 
+			Док.Отпустил 		= глПользователь.Отпустил;
+			
+			Если ПустоеЗначение(глАктивныйДоговор) = 0 Тогда
+				Док.Контрагент 		= глАктивныйДоговор.Владелец;
+				Док.Договор 		= глАктивныйДоговор;
+				Док.КатегорияЦен 	= Док.Контрагент.КатегорияЦен;
+			Иначе
+				
+				Док.Контрагент 		= Константа.ОсновнойПокупатель;
+				Док.Договор 		= ПолучитьПустоеЗначение("Документ.Договор"); 
+				
+				Если Константа.ПодставлятьОсновнойДоговор = Да Тогда
+					// подставим договор по умолчанию                                 
+					Если ПустоеЗначение(Док.Контрагент.ОсновнойДоговорТорг) = 0 Тогда
+						Если Док.Фирма = Док.Контрагент.ОсновнойДоговорТорг.Фирма Тогда
+							Док.Договор = Док.Контрагент.ОсновнойДоговорТорг;
+						КонецЕсли;	
+					КонецЕсли;	
+				КонецЕсли;
+			    
+			КонецЕсли;    
+			
+			Док.ВидТорговли = Перечисление.ВидыТорговли.ИнтернетМагазин;
+			
+			Если ПустоеЗначение(Док.Договор)=0 Тогда
+				Если Док.Договор.Вид()="Договор" Тогда
+					Док.ВидТорговли = Док.Договор.ВидТорговли;
+				ИначеЕсли глДополнениеДоговораКонсигнации(Док.Договор)=Да Тогда
+					Док.ВидТорговли = Перечисление.ВидыТорговли.Предоплата;
+				КонецЕсли;
+			КонецЕсли;
+			
+			Док.ВидОперации = 0;
+			Если ПустоеЗначение(Док.Контрагент) = 1 Тогда
+				Док.Контрагент=Константа.ОсновнойПокупатель;
+			КонецЕсли;
+			Если ПустоеЗначение(Док.Контрагент.КатегорияЦен) = 0 Тогда
+				Док.КатегорияЦен = Док.Контрагент.КатегорияЦен;
+			КонецЕсли;  
+			
+			Док.Валюта=Константа.ОсновнаяВалютаПродажи;
+			Если ПустоеЗначение(Док.Валюта) = 1 Тогда
+				Док.Валюта = Гривня;
+			КонецЕсли;
+			Док.Курс = глКурсДляВалюты(Док.Валюта,РабочаяДата());
+			Док.Дата_Курса = Док.ДатаДок;
+			
+			Если ПустоеЗначение(Док.ВидТорговли)=1 Тогда
+			    Док.ВидТорговли = Константа.ОсновнойВидТорговли;
+			КонецЕсли;
+			
+			Если Док.ВидТорговли = Перечисление.ВидыТорговли.Нал Тогда
+				Док.Касса = глНайтиКассу(Док.Фирма,Док.Валюта);
+			КонецЕсли; 
+			
+			Док.КатегорияЦен 	= глРозница;
+			Док.Комментарий 	= "[# "+order_id+" #] "+lastname+" "+firstname; 
+			Док.Идентификатор 	= СокрЛП(order_id); 
+			
+			Док.УдалитьСтроки();
+			
+			GetOrderContent(order_id,Док);
+			                
+			If isNew=1 Then
+				Док.АвтоВремяОтключить();
+				ЧЧ=0; ММ=0; СС=0;
+				ТекущееВремя(ЧЧ,ММ,СС);
+				Док.УстановитьВремя(ЧЧ,ММ,СС);  
+			EndIf;
+			
+			Док.Записать();
+			
+			If isNew = 1 Then
+				Log("*","New order: (ID "+order_id+") #"+TrimAll(Док.НомерДок)+" @"+Док.ПолучитьВремя());
+			Else
+				Log("?","Order reloaded: (ID "+order_id+") "+Док.НомерДок);
+			EndIf;
+			
+			SetOrderStatus(order_id,2);
+			
+			Recordset.MoveNext(); 
+			
+		EndDo;
+		
+	EndIf;
+	
+	Recordset.Close();
+		
+	ODBCDriver.Close();
+	
+EndProcedure
+
+//==================================================
+Procedure _insertSpecialPrice(Stream, product_id, price, priceTypeNumber) 
+	
+	price = Number(price);
+	
+	if price > 0 then
+		  
+		Stream.CommandText ="INSERT INTO oc_product_special (price,product_id,customer_group_id,priority)
+							|VALUES ('"+price+"','"+product_id+"','"+priceTypeNumber+"',1)";
+		Stream.Execute();
+		
+	endIf;
+	
+EndProcedure 
+
+//==================================================
+Function _getSpecialPrice(product_id, priceTypeNumber) 
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;
+	
+	price = 0;
+	
+	CommandText ="SELECT FROM oc_product_special price WHERE product_id='"+product_id+"' AND customer_group_id='"+priceTypeNumber+"'";
+	Recordset.Open(CommandText);
+	
+	if Recordset.EOF() = 0 then
+		
+		Recordset.MoveToFirst();
+		price = Number(Recordset.Fields("price").Value);
+		
+	endIf;   
+	Recordset.Close();  
+	
+	Return price;
+	
+EndFunction
+       
+//==================================================
+//update table oc_product_special
+//price types:
+//	1 - розница
+//	2 - опт
+//	3...8 - скидки от 5 до 10 %
+//	9 - спецопт
+Procedure _updateItemPrices(Stream, item, product_id, basePrice)  
+	
+	Stream.CommandText ="DELETE FROM oc_product_special
+						| WHERE product_id="+product_id+" AND priority=1";
+	Stream.Execute();      
+		
+	if EmptyValue(priceCategory2) = 0 then
+		
+		price = глПолучитьЦену(priceCategory2, item); 
+		
+		_insertSpecialPrice(Stream,product_id,price,2);
+		
+	endIf;  
+	
+	if EmptyValue(priceCategory3) = 0 then
+		
+		price = глПолучитьЦену(priceCategory3, item);  
+		
+		_insertSpecialPrice(Stream,product_id,price,9);
+		
+	endIf;   
+	
+	if глДаватьСкидку(item) <> 0 then    
+		
+		//------------------------------ дополнительные типы цен для скидок
+		// типы от 3 до 8 соответствуют процентам от 5% до 10%   
+		if basePrice > 0 then
+			
+			for priceTypeNumber=3 to 8 do
+				
+				discount = priceTypeNumber + 2;
+				
+				глПроверитьСкидку(item, discount);
+				        
+				price = Format(basePrice * (1 - discount/100), "Ч.2.");
+				
+				_insertSpecialPrice(Stream,product_id,price,priceTypeNumber);
+					
+			endDo;
+			
+		endIf;
+		
+	endIf;
+	
+	
+EndProcedure   
+
+//*******************************************
+procedure checkImagePath()   
+	
+	if initODBCDriver() <> 1 then
+		return;
+	endif;     
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;    
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;
+	
+	Goods = CreateObject("Справочник.Номенклатура");
+	
+	i = 0; code = 0; name = "";
+		
+	Recordset.Open("SELECT product_id,model,date_added FROM oc_product WHERE image='' ORDER BY product_id"); 
+	if Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do   
+			
+			product_id 	= Recordset.Fields("product_id").Value;
+			model 		= Recordset.Fields("model").Value;
+			date_added 	= Recordset.Fields("date_added").Value;  
+			
+			if TrimAll(model) <> "" then
+				
+				code = Left(""+model+"              ",15); 
+				name = Goods.Наименование;
+				
+				if Goods.FindByAttribute("КодМаркет",code,1) = 1 then
+					if IsBlankString(Goods.ИмяФайла) = 0 then
+						
+						fileName	= "data/item_"+TrimAll(code)+".jpg";
+						        
+						Stream.CommandText ="UPDATE oc_product SET image='"+fileName+"' WHERE product_id = '"+product_id+"'";
+						Stream.Execute();  
+						Message("  UPDATE "+code+"; "+fileName);
+						
+					endIf;
+				endIf;
+			
+			endIf;   
+			
+			Recordset.MoveNext(); 
+			
+			i = i+1;
+			if i%10=0 then
+				Status("processing... "+i+"  last item: "+code+" "+name);
+			endIf;
+			
+		EndDo;  
+		
+	endIf;
+	Recordset.Close();
+		
+	//Recordset.Open("SELECT product_id,model,date_added FROM oc_product WHERE model='"+id+"' ORDER BY product_id"); 
+	//if Recordset.EOF()=0 then   
+	//	              
+	//	isFirst = 1; delCount = 0;
+	//	Recordset.MoveFirst();
+	//	While Recordset.EOF() = 0 Do   
+	//		
+	//		product_id 	= Recordset.Fields("product_id").Value;
+	//		model 		= Recordset.Fields("model").Value;
+	//		date_added 	= Recordset.Fields("date_added").Value;    
+	//		        
+	//		if isFirst = 0 then
+	//			if delCount = 0 then  
+	//				Message(""+id+" "+Goods.Наименование);
+	//				Message(">>   "+product_id+"; "+date_added);
+	//			endIf;
+	//			Stream.CommandText ="DELETE FROM oc_product WHERE product_id = '"+product_id+"'";
+	//			Stream.Execute();  
+	//			Message("  DELETED "+product_id+"; "+date_added);
+	//			delCount = delCount+1;
+	//		else    
+	//			isFirst = 0;
+	//			//Message("          "+product_id+"; "+model+"; "+date_added);
+	//		endIf;
+	//		
+	//		Recordset.MoveNext();
+	//		
+	//	EndDo;  
+	//	
+	//endIf;
+	//Recordset.Close();
+	
+	ODBCDriver.Close();
+
+endProcedure    
+
+//*******************************************
+procedure updateNameAndDescription()   
+	
+	if initODBCDriver() <> 1 then
+		return;
+	endif;     
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;    
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;
+	
+	Goods = CreateObject("Справочник.Номенклатура");
+	
+	i = 0; code = 0; name = ""; upd = 0; product_id=0;
+		
+	Recordset.Open("SELECT 
+					|oc_product.product_id AS product_id,
+					|oc_product.model AS model,
+					|oc_product_description.name AS name,
+					|oc_product_description.description AS description
+					|FROM oc_product 
+					|LEFT JOIN oc_product_description 
+					|	ON oc_product.product_id = oc_product_description.product_id"); 
+					
+	if Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do   
+			
+			product_id 	= Recordset.Fields("product_id").Value;
+			model 		= Recordset.Fields("model").Value;
+			name 		= StringFromUTF8(Recordset.Fields("name").Value);  
+			description	= StringFromUTF8(Recordset.Fields("description").Value);  
+			
+			if TrimAll(model) <> "" then
+				
+				code = Left(""+model+"              ",15); 
+				//name = Goods.Наименование;
+				
+				if Goods.FindByAttribute("КодМаркет",code,1) = 1 then 
+					
+					itemName = TrimAll(Goods.НаименованиеИнтернет);
+					if IsBlankString(itemName) = 1 then
+						itemName = TrimAll(Goods.ПолнНаименование);
+					endIf;   
+					
+					itemDescription = TrimAll(Goods.ОписаниеНоменклатуры); 
+						
+					if (itemName <> TrimAll(name)) then //OR (itemDescription <> TrimAll(description)) then 
+						
+						itemName 		= StringToUpload(itemName);   
+						itemDescription = StringToUpload(itemDescription);
+						
+						commandText = "UPDATE 
+										|oc_product_description 
+										|SET 
+										|name='"+itemName+"',
+										|description='"+itemDescription+"'
+										|WHERE product_id = '"+product_id+"'"; 
+					           
+						try
+							Stream.CommandText = commandText;
+							Stream.Execute();   
+							upd = upd+1;
+						except
+							Message("Update error: "+GetErrorDescription());
+							Message("command text: "+commandText);
+						endTry; 
+						
+						if upd%100=0 then  
+							Message(""+CurrentTime()+" "+product_id+": "+code+" "+Goods.ПолнНаименование); 
+						endIf;
+						
+					endIf;
+						
+				endIf;
+			
+			endIf;   
+			
+			Recordset.MoveNext(); 
+			
+			i = i+1;
+			if i%100=0 then  
+				Status("processing... "+i+"|"+upd);
+			endIf;   
+			
+			//if i=100 then
+			//	break;
+			//endIf;
+			
+		EndDo;  
+		
+	endIf;
+	Recordset.Close();
+		
+	ODBCDriver.Close();
+
+endProcedure
+
+procedure updateItemsAttributes()
+
+	attributes = CreateObject("Справочник.Н_СвойстваНоменклатуры");
+	items = CreateObject("Справочник.Номенклатура");
+    
+	i=0;
+	Status("Выгрузка свойств (ODBC Driver)..."); 
+	
+	if initODBCDriver() <> 1 then
+		return;
+	endIf;   
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;    
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;  
+	
+	Recordset.Open("SELECT product_id,model FROM oc_product ORDER BY product_id"); 
+	if Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do 
+			
+			product_id 	= Recordset.Fields("product_id").Value;
+			model 		= Left(Recordset.Fields("model").Value+"               ",15);  
+			
+			if items.findByAttribute("КодМаркет",model,1) = 1 then 
+				
+				attributes.UseOwner(items.CurrentItem());
+				if attributes.SelectItems(1) = 1 then  
+					
+					While attributes.GetItem() = 1 Do    
+						
+						if EmptyValue(attributes.Свойство) = 1 then 
+							Message(""+TrimAll(model)+" "+TrimAll(items.Description)+": пустое наименование свойства");
+							Continue;
+						endIf;
+						
+						idAttribute		= attributes.Свойство.Код;
+						idLocal 		= 1;
+						attributeValue	= StringToUpload(attributes.Значение);
+						
+						Stream.CommandText ="INSERT INTO oc_product_attribute (product_id,attribute_id,language_id,text)
+											|VALUES ('"+product_id+"','"+idAttribute+"','"+idLocal+"','"+attributeValue+"')";
+						Stream.Execute();
+						
+					EndDo;
+					
+				endIf;   
+				
+				i=i+1; 
+				if i%50=0 then
+					Status("loading... "+i);
+				endif;
+				
+			endIf; 
+			
+			Recordset.MoveNext();
+			
+		EndDo;
+		
+	endIf;
+	
+	ODBCDriver.Close();
+	
+endProcedure   
+  
+//====================================================================
+Procedure UploadNewItems()
+	        
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;   
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;    
+	
+	TableGoodsItems.SelectLines();
+	While TableGoodsItems.GetLine() = 1 Do
+		
+		if TableGoodsItems.ID > 0 then
+			Continue;
+		endIf;
+		
+		currentItem 	= TableGoodsItems.Item;       
+		itemName 		= TrimAll(currentItem.НаименованиеИнтернет);
+		if IsBlankString(itemName) = 1 then
+			itemName = TrimAll(currentItem.ПолнНаименование);
+		endIf;
+		
+		itemDescription = TrimAll(currentItem.ОписаниеНоменклатуры); 
+		code 			= TrimAll(currentItem.КодМаркет);
+		unit			= "/"+StringToUpload(currentItem.ЕдиницаПоУмолчанию);
+		dateAdded		= DateSQL(CurDate());
+		product_id		= 0;
+		
+		//clear records with current 'model'
+		Stream.CommandText ="DELETE FROM oc_product
+							| WHERE model = '"+code+"'";
+		Stream.Execute();      
+		
+		//insert new record, status=0 - unpublished
+		Stream.CommandText = "INSERT INTO oc_product
+							|(model,status,stock_status_id,upc,date_added)
+							|VALUES
+							|('"+code+"','0','7','"+unit+"','"+dateAdded+"')";
+		Stream.Execute();   
+		             
+		//find inserted record to determine new product_id
+		Recordset.Open("SELECT 
+						|product_id,
+						|model 
+						|FROM oc_product   
+						|WHERE model='"+code+"'");  
+						
+		if Recordset.EOF()=0 then   
+			              
+			Recordset.MoveFirst();
+			product_id 	= Recordset.Fields("product_id").Value;
+			
+			Log("","New ID: "+product_id+" ("+code+") "+itemName);
+			
+		endIf;  
+		
+		Recordset.Close();
+		
+		if product_id > 0 then  
+			               
+			//======================== product_to_store
+			Stream.CommandText ="DELETE FROM oc_product_to_store
+								| WHERE product_id = "+product_id;
+			Stream.Execute();
+			
+			Stream.CommandText =
+				"INSERT INTO oc_product_to_store
+					|(product_id,store_id)
+					|VALUES
+					|('"+product_id+"','0')";
+			Stream.Execute();   
+			               
+			//======================== product_description
+			Stream.CommandText ="DELETE FROM oc_product_description
+								| WHERE product_id = "+product_id;
+			Stream.Execute();  
+			
+			itemName 		= StringToUpload(itemName);   
+			itemDescription = StringToUpload(itemDescription);
+			
+			commandText = "INSERT INTO 
+							|oc_product_description
+							|(product_id, language_id, name, description)
+							|VALUES 
+							|('"+product_id+"','1','"+itemName+"','"+itemDescription+"')"; 
+		           
+			Stream.CommandText = commandText;
+			Stream.Execute();   
+			               
+			//======================== list update
+			TableGoodsItems.ID = product_id; 
+			TableGoodsItems.Updated = 1;
+			
+		else
+			
+			Log("!","Failed to insert new ID! ("+code+") "+itemName);
+			
+		endIf;     
+		
+	EndDo;
+	
+EndProcedure  
+  
+//====================================================================
+Procedure CheckItemsForUpload() 
+	
+	StorageList = CreateObject("ValueList");
+	StorageList.AddValue(Const.ОсновнойСклад);
+	
+	If StorageList.GetListSize() = 0 Then
+		Return;
+	EndIf;     
+	
+	GroupsForUpload = CreateObject("ValueList");
+	Goods = CreateObject("Reference.Номенклатура");
+	If Goods.SelectItemsByAttribute("ПубликоватьНаСайте",1,0,1) = 0 Then
+		Return;
+	EndIf; 
+	While Goods.GetItem() = 1 Do
+		
+		GroupsForUpload.AddValue(Goods.CurrentItem());
+		
+	EndDo;  
+	If GroupsForUpload.GetListSize() = 0 Then
+		Return;
+	EndIf;  
+	
+	Log("","Calculating rests for "+GroupsForUpload.GetListSize()+" groups"); 
+	
+	currentDate = Min(WorkingDate(),GetDateOfAP());
+	
+	query = CreateObject("Query");
+	queryText = 
+	"Period From currentDate Till currentDate;
+	|item = Регистр.ОстаткиТоваров.Товар;
+	|qty = Регистр.ОстаткиТоваров.ОстатокТовара; 
+	|storage = Регистр.ОстаткиТоваров.Склад;
+	|firm = Регистр.ОстаткиТоваров.Фирма;
+	|Function quantity = EndRest(qty);   
+	|Group item Without Groups;
+	|Condition (storage In StorageList);
+	|Condition (item In GroupsForUpload);
+	|Condition (firm = глПустаяФирма);
+	|";
+	If query.Execute(queryText) = 0 Then
+		Return;
+	EndIf;         
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;   
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;    
+	
+	q=0;
+	
+	While query.Group(1) = 1 Do
+		
+		If query.quantity < 1 Then
+			Continue;
+		EndIf;  
+		
+		Item = query.item;
+		 
+		line = 0;
+		If TableGoodsItems.FindValue(Item,line,"Item") = 0 Then
+			
+			TableGoodsItems.NewLine();
+			TableGoodsItems.Item = Item;
+			TableGoodsItems.Code = Item.КодМаркет;	
+			TableGoodsItems.ID = 0;
+			TableGoodsItems.Qty = query.quantity;
+			TableGoodsItems.Price = 0;
+			TableGoodsItems.Unit = "";
+			TableGoodsItems.Updated = 1; 
+			TableGoodsItems.Checked = 1; 
+			
+			q=q+1;
+			
+		Else
+			
+			Qty = Round(TableGoodsItems.GetValue(line,"Qty"),0);
+			If Qty <> Round(query.quantity,0) Then
+				TableGoodsItems.SetValue(line,"Qty",query.quantity);
+				TableGoodsItems.SetValue(line,"Updated",1);
+			EndIf; 
+			TableGoodsItems.SetValue(line,"Checked",1);
+			
+		EndIf;   
+		
+	EndDo; 
+	
+	Log("","Found "+q+" new items for upload");   
+	  
+	//if item is not present in rests query, set it's qty=0
+	TableGoodsItems.SelectLines();
+	While TableGoodsItems.GetLine() = 1 Do
+		
+		If (TableGoodsItems.Checked = 0) AND (TableGoodsItems.Qty <> 0) Then
+			
+			TableGoodsItems.Qty = 0;
+			TableGoodsItems.Updated = 1;
+			
+		EndIf;	
+		
+	EndDo;    
+	
+	TableGoodsItems.Fill(0,,,"Checked");
+	
+EndProcedure    
+ 
+//====================================================================
+Procedure LoadProducts()  
+	
+	items = CreateObject("Справочник.Номенклатура");
+	
+	TableGoodsItems.Clear();
+	TableGoodsItems.NewColumn("Item"); 
+	TableGoodsItems.NewColumn("Code");
+	TableGoodsItems.NewColumn("ID");
+	TableGoodsItems.NewColumn("Qty");
+	TableGoodsItems.NewColumn("Price");
+	TableGoodsItems.NewColumn("Unit"); 
+	
+	TableGoodsItems.NewColumn("Updated");
+	TableGoodsItems.NewColumn("Checked");
+	TableGoodsItems.NewColumn("DoNotUpdate");  //flag on site 
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;  
+	
+	Recordset.Open("SELECT 
+					|product_id,
+					|model,
+					|status, 
+					|isbn,
+					|upc,
+					|CAST(quantity AS CHAR) AS quantity,
+					|CAST(price AS CHAR) AS price 
+					|FROM oc_product  
+					|ORDER BY product_id");  
+					
+	if Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do 
+			
+			product_id 		= Recordset.Fields("product_id").Value;
+			model 			= Left(Recordset.Fields("model").Value+"               ",15); 
+			itemStatus		= Number(Recordset.Fields("status").Value);
+			itemQuantity 	= Number(Recordset.Fields("quantity").Value);
+			itemPrice		= Number(Recordset.Fields("price").Value);  
+			dontUpdate		= Number(Recordset.Fields("isbn").Value); //flag for disabling price update 
+			unitText		= Recordset.Fields("upc").Value;
+			
+			TableGoodsItems.NewLine();
+			TableGoodsItems.Code 	= model;	
+			TableGoodsItems.ID 		= product_id;
+			TableGoodsItems.Qty 	= itemQuantity;
+			TableGoodsItems.Price 	= itemPrice;
+			TableGoodsItems.Unit 	= unitText;
+			TableGoodsItems.Updated	= 0;
+			TableGoodsItems.Checked	= 0; 
+			TableGoodsItems.DoNotUpdate	= dontUpdate;
+			
+			TableGoodsItems.Item = "";
+			If items.findByAttribute("КодМаркет",model,1) = 1 Then
+				TableGoodsItems.Item = items.CurrentItem();
+			EndIf;
+			
+			Recordset.MoveNext();
+			
+		EndDo;
+		
+	endIf; 
+	
+	Recordset.Close(); 
+	Recordset = "";
+
+	//-------------------------- SPECIAL PRICES ------------
+	//TableSpecialPrice.Clear();   
+	//TableSpecialPrice.NewColumn("Price"); 
+	//TableSpecialPrice.NewColumn("Type");
+	//TableSpecialPrice.NewColumn("ID"); 
+	//TableSpecialPrice.NewColumn("Updated"); 
+	//
+	//Recordset = createObject("ADODB.Recordset");
+	//Recordset.CursorType = 3;
+	//Recordset.ActiveConnection = ODBCDriver;
+	//
+	//Recordset.Open("SELECT 
+	//				|product_id,
+	//				|customer_group_id,
+	//				|CAST(price AS CHAR) AS price 
+	//				|FROM oc_product_special   
+	//				|ORDER BY product_id");  
+	//
+	//if Recordset.EOF() = 0 then
+	//	
+	//	Recordset.MoveFirst();
+	//	While Recordset.EOF() = 0 Do 
+	//		
+	//		product_id 		= Recordset.Fields("product_id").Value;
+	//		type 			= Recordset.Fields("customer_group_id").Value; 
+	//		price			= Number(Recordset.Fields("price").Value);  
+	//		
+	//		TableSpecialPrice.NewLine();
+	//		TableSpecialPrice.ID 		= product_id;
+	//		TableSpecialPrice.Type 		= type;
+	//		TableSpecialPrice.Price 	= price;
+	//		TableSpecialPrice.Updated 	= 0;
+	//		
+	//		Recordset.MoveNext();
+	//		
+	//	EndDo;
+	//	
+	//endIf;    
+	//
+	//Recordset.Close();  
+	
+EndProcedure  
+
+//====================================================================
+Procedure CheckSpecialPrice(ID,Type,Price)  
+	
+	line = 0;
+	If TableSpecialPrice.FindValue(ID,line,"ID") = 1 Then
+		  
+		sitePrice = TableSpecialPrice.GetValue(line,"Price");
+		
+		If sitePrice <> Price Then
+			TableSpecialPrice.SetValue(line,"Price",Price); 
+			TableSpecialPrice.SetValue(line,"Updated",1);
+		EndIf;
+		
+	EndIf;
+	
+EndProcedure
+
+//====================================================================
+Procedure CheckPrices()   
+	
+	//price types:
+	//	1 - розница
+	//	2 - опт
+	//	3...8 - скидки от 5 до 10 %
+	//	9 - спецопт
+	
+	priceCategory1 = Const.РозничнаяКатегорияЦен; 
+	priceCategory2 = ""; 
+	priceCategory3 = "";
+	
+	PriceCategoryItems = CreateObject("Справочник.КатегорииЦен");
+	if PriceCategoryItems.FindByDescr("Оптовая",0,1) = 1 then
+		priceCategory2 = PriceCategoryItems.CurrentItem();
+	endIf;     
+	if PriceCategoryItems.FindByDescr("Спецопт",0,1) = 1 then
+		priceCategory3 = PriceCategoryItems.CurrentItem();
+	endIf;     
+	
+	Log("", "Price types: (base type) #1: "+priceCategory1+"; #2: "+priceCategory2+"; #9: "+priceCategory3); 
+	  
+	i = 0; 
+	q = TableGoodsItems.LinesCnt();
+	
+	TableGoodsItems.SelectLines();
+	While TableGoodsItems.GetLine() = 1 Do 
+		                                   
+		item = TableGoodsItems.Item;
+		ID = TableGoodsItems.ID;
+		
+		If EmptyValue(item) = 1 Then  
+			Continue;
+		EndIf; 
+		
+		basePrice = глПолучитьЦену(priceCategory1, item);  
+		
+		If basePrice <> TableGoodsItems.Price Then  
+				         
+			TableGoodsItems.Price = basePrice;
+			TableGoodsItems.Updated = 1;         
+			                                                            
+			//----------------------------------------------------------
+			//all special prices will be updated via _updateItemPrices()
+			//----------------------------------------------------------
+			
+			//for priceTypeNumber=3 to 8 do
+			//	
+			//	discount = priceTypeNumber + 2;
+			//	
+			//	глПроверитьСкидку(item, discount, 1);
+			//	        
+			//	price = Format(basePrice * (1 - discount/100), "Ч.2.");
+			//	
+			//	CheckSpecialPrice(ID,priceTypeNumber,price);
+			//		
+			//endDo;
+				
+		endIf; 
+		
+		//CheckSpecialPrice(ID,2,глПолучитьЦену(priceCategory2, item));
+		//CheckSpecialPrice(ID,9,глПолучитьЦену(priceCategory3, item));
+				
+		i=i+1; 
+		if i%50=0 then
+			Status("checking prices... "+Int(100*i/q)+"% ("+i+")");  
+		endif;
+		
+	EndDo;  
+		
+EndProcedure     
+
+//====================================================================
+Procedure UploadDiscounts()      
+	
+	//if initODBCDriver() <> 1 then
+	//	return;
+	//endif;     
+	
+	//Stream = createObject("ADODB.command");
+	//Stream.ActiveConnection = ODBCDriver;   
+	//Stream.CommandText = "delete from oc_disc";
+	//Stream.Execute();   
+		
+	TableDiscount = Createobject("ValueTable");
+	TableDiscount.NewColumn("id","Строка",10,0); 
+	TableDiscount.NewColumn("cart");
+	TableDiscount.NewColumn("name");
+	TableDiscount.NewColumn("tel");
+	TableDiscount.NewColumn("adres");
+	TableDiscount.NewColumn("proc"); 
+	TableDiscount.NewColumn("opis"); 
+	TableDiscount.NewColumn("updated","Number",1,0); 
+	
+	Recordset = createObject("ADODB.Recordset");
+	Recordset.CursorType = 3;
+	Recordset.ActiveConnection = ODBCDriver;  
+	
+	Recordset.Open("SELECT 
+					|disc_id,
+					|disc_cart,
+					//|disc_name, 
+					|disc_tel,
+					//|disc_adres,
+					//|disc_opis,
+					|CAST(disc_proc AS CHAR) AS disc_proc
+					|FROM oc_disc  
+					|ORDER BY disc_id");  
+					
+	if Recordset.EOF()=0 then   
+		              
+		Recordset.MoveFirst();
+		While Recordset.EOF() = 0 Do 
+			
+			TableDiscount.NewLine();
+			TableDiscount.id 		= Recordset.Fields("disc_cart").Value;
+			TableDiscount.tel 		= Recordset.Fields("disc_tel").Value;
+			TableDiscount.proc		= Number(Recordset.Fields("disc_proc").Value);
+			
+			Recordset.MoveNext();  
+			
+			//If TableDiscount.LinesCnt() = 1000 Then
+			//	Break;
+			//EndIf;
+			
+		EndDo;
+		
+	endIf;   
+	
+	Recordset.Close(); 
+	Recordset = "";   
+	
+	//TableDiscount.ChooseLine();
+	//Return;
+	
+	new = 0;  
+	i = 0;
+	
+	Log("","Discounts on site: "+TableDiscount.LinesCnt());
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver;   
+	
+	Discount = CreateObject("Reference.ДисконтныеКарточки"); 
+	Discount.UseDate(CurDate());
+	Discount.SelectItems();
+	While Discount.GetItem() = 1 Do  
+		
+		i = i+1;
+		
+		if Discount.Процент = 0 then
+			P = StringToUpload("Опт"); 
+		Else
+			P = TrimAll(Discount.Процент);
+		endif;
+		
+		line = 0;  
+		code = Left(""+Discount.Code+"         ",10);
+		If TableDiscount.FindValue(code,line,"id") = 1 Then  
+			
+			If Discount.DeleteMark() = 1 Then
+				Stream.CommandText = "DELETE FROM oc_disc WHERE disc_cart="+Discount.Code;
+				Stream.Execute();                                                      
+				Continue;
+			EndIf;
+			                                                          
+			tel = TrimAll(TableDiscount.GetValue(line,"tel"));
+			proc = TrimAll(TableDiscount.GetValue(line,"proc")); 
+			
+			//If TrimAll(Discount.Телефон) <> tel Then
+			//	Log("-","Phone: "+TrimAll(Discount.Телефон)+" <> "+tel); 
+			//EndIf;
+			//If P <> proc Then
+			//	Log("-","Percnt: "+P+" <> "+proc); 
+			//EndIf;
+			
+			If P <> proc Then
+					                   
+				Log("-","Updating discount: "+TrimAll(Discount.КВладелец)+": "+proc+" --> "+P); 
+				
+				commandText = "UPDATE 
+								|oc_disc
+								|SET 
+								|disc_tel='"+Discount.Телефон+"',
+								|disc_proc='"+P+"'
+								|WHERE
+								|disc_cart="+Discount.Code; 
+								
+				Stream.CommandText = commandText;
+				Stream.Execute();   
+					
+			EndIf;  
+			
+		ElsIf Discount.DeleteMark() = 0 Then   
+			
+			//Log("","Adding new discount: "+TrimAll(Discount.КВладелец));
+			
+			commandText = "INSERT INTO 
+							|oc_disc
+							|(disc_cart,disc_name,disc_tel,disc_adres,disc_opis,disc_proc)
+							|VALUES 
+							|('"+Discount.Code
+								+"','"+StringToUpload(Discount.КВладелец)
+								+"','"+StringToUpload(Discount.Телефон) 
+								+"','"+StringToUpload(Discount.Адрес)
+								+"','"+StringToUpload(Discount.Примечание)
+								+"','"+P
+								+"')"; 
+		           
+			Stream.CommandText = commandText;
+			Stream.Execute();  
+			
+			new = new+1;  
+			
+		EndIf;  
+		
+		If i%100=0 Then
+			Status("discounts... "+i+" / new "+new);
+		EndIf;   
+		
+		//If i = 100 Then
+		//	Break;
+		//EndIf;
+		
+	EndDo;  
+	
+	Log("","Discounts updated; added new: "+new);
+	
+EndProcedure
+
+//====================================================================
+Procedure UpdateAll()
+	
+	if initODBCDriver() <> 1 then
+		return;
+	endIf;      
+	                 
+	Log("","Connected, starting update");  
+	Log("","Full update mode = "+FULLUPDATE);  
+	
+	If FULLUPDATE = 1 Then 
+		
+		UploadDiscounts();
+		
+	EndIf; 
+	
+	LoadProducts();
+	
+	Log("","Products on site: "+TableGoodsItems.LinesCnt());
+	//Log("","Special prices on site: "+TableSpecialPrice.LinesCnt());
+	
+	CheckItemsForUpload(); 
+	
+	UploadNewItems();    
+	            
+	If FULLUPDATE = 1 Then 
+		
+		CheckPrices();  
+		
+	EndIf; 
+	
+	Log("","Items to update: "+TableGoodsItems.Total("Updated"));
+	
+	i = 0; s = 0; p = 0; pub = 0; total = TableGoodsItems.LinesCnt(); 
+	currentPercent = 0;
+	
+	Stream = createObject("ADODB.command");
+	Stream.ActiveConnection = ODBCDriver; 
+	
+	TableGoodsItems.SelectLines();
+	While TableGoodsItems.GetLine() = 1 Do 
+		
+		If EmptyValue(TableGoodsItems.Item) = 1 Then  
+			//Log("!","Product "+TableGoodsItems.ID+"; code "+TableGoodsItems.Code+" - not found in local database");
+			Continue;
+		EndIf;      
+		
+		If TableGoodsItems.Updated = 1 Then  
+			
+			if TableGoodsItems.DoNotUpdate = 1 then 
+				
+				//Log("","ID "+TableGoodsItems.ID+" ("+TrimAll(TableGoodsItems.Item)+") has DONOTUPDATE flag");
+				
+				Stream.CommandText ="UPDATE oc_product SET quantity="+TableGoodsItems.Qty+" WHERE product_id = '"+TableGoodsItems.ID+"'";
+				Stream.Execute();  
+				
+			else
+				
+				Stream.CommandText ="UPDATE oc_product SET quantity="+TableGoodsItems.Qty+", price="+TableGoodsItems.Price+" WHERE product_id = '"+TableGoodsItems.ID+"'";
+				Stream.Execute();  
+				
+			endIf;
+				
+			s = s + 1;  
+
+			//Log("","updated: ID "+TableGoodsItems.ID+"; "+TableGoodsItems.Code+" "+TableGoodsItems.Item);
+				
+		endIf; 
+		
+		If FULLUPDATE = 1 Then
+		
+			//always update secial prices and discounts 
+			if TableGoodsItems.DoNotUpdate = 0 then
+				
+				_updateItemPrices(Stream,TableGoodsItems.Item,TableGoodsItems.ID,TableGoodsItems.Price);
+				
+			endIf;  
+			
+		Endif;
+			 
+		i=i+1; 
+		if i%50=0 then
+			Status("updating items... total: "+i+" updated:"+s);  
+		endif;  
+		percent = Round(i/total*100,0);
+		if (FULLUPDATE = 1) AND (percent%10 = 0) AND (percent <> currentPercent) then
+			Log("","..."+percent+"% updated; processed: "+i+" updated:"+s);  
+			currentPercent = percent;
+		endif;
+			
+	EndDo;  
+	
+	Log(,"Items updated: "+s); 
+	
+	ODBCDriver.Close();
+	
+EndProcedure   
+
+//====================================================================
+Function GetCategory(Item) 
+	
+	Parent = Item.Parent;
+	
+	If EmptyValue(Parent) = 1 Then
+		Return "";
+	EndIf;
+	
+	Cat = CreateObject("Reference.КатегорииCMS");
+	
+	CategoryCode = Left(Parent.FullCode()+"          ",10);
+	
+	If Cat.FindByAttribute("КодГруппы",CategoryCode,1) = 0 Then
+		Cat.NewGroup();
+		Cat.Description = Parent.Description;
+		Cat.КодГруппы = CategoryCode; 
+		Cat.Parent = GetCategory(Parent);
+		Cat.Write();
+	EndIf;
+	
+	Return Cat.CurrentItem();
+	
+EndFunction   
+
+//====================================================================
+//Procedure UploadCategories()   
+//	
+//	Cat = CreateObject("Reference.КатегорииCMS");  
+//	
+//	Cat.SelectItems();
+//	While Cat.GetItem() = 1 Do
+//		Cat.Delete(1);
+//	EndDo;
+//	//Return;
+//	
+//	if initODBCDriver() <> 1 then
+//		return;
+//	endIf;      
+//	                 
+//	Log("","Seccessfully connected to the site database, starting update...");  
+//	
+//	LoadProducts();
+//	
+//	Log("","Products on site: "+TableGoodsItems.LinesCnt()); 
+//	Log("","Reading catalog structure...");
+//		
+//	i = 0; s = 0; p = 0; pub = 0;  
+//	
+//	TableGoodsItems.SelectLines();
+//	While TableGoodsItems.GetLine() = 1 Do 
+//		
+//		If EmptyValue(TableGoodsItems.Item) = 1 Then  
+//			Log("!","Product "+TableGoodsItems.ID+"; code "+TableGoodsItems.Code+" - not found in local database");
+//			Continue;
+//		EndIf;    
+//		
+//		ItemCategory = GetCategory(TableGoodsItems.Item);
+//			
+//		i=i+1; 
+//		if i%50=0 then
+//			Status("reading items... total: "+i);  
+//		endif;
+//			
+//	EndDo; 
+//	
+//	Stream = createObject("ADODB.command");
+//	Stream.ActiveConnection = ODBCDriver; 
+//
+//	Log("","Uploading catalog structure..."); 
+//	
+//	Stream.CommandText = "DELETE FROM oc_category";
+//	Stream.Execute();
+//	
+//	Stream.CommandText = "DELETE FROM oc_category_description";
+//	Stream.Execute();
+//	
+//	Cat.SelectItems();
+//	While Cat.GetItem() = 1 Do
+//		
+//		If Cat.IsGroup() = 1 Then
+//			
+//			Code = Cat.Code;
+//			ParentCode = 0;
+//			
+//			If EmptyValue(Cat.Parent) = 0 Then
+//				ParentCode = Cat.Parent.Code;
+//			EndIf;
+//			
+//			Stream.CommandText = "INSERT INTO oc_category (category_id,parent_id) VALUES ("+Code+","+ParentCode+")";
+//			Stream.Execute();
+//			
+//			Stream.CommandText = "INSERT INTO oc_category_description (category_id,language_id,name) VALUES ("+Code+",1,'"+Cat.Description+"')";
+//			Stream.Execute();
+//			
+//		EndIf;
+//		
+//	EndDo;  
+//	         
+//	i=0;
+//	Log("","Linking items to categories...");  
+//	
+//	Stream.CommandText = "DELETE FROM oc_product_to_category";
+//	Stream.Execute();
+//	
+//	TableGoodsItems.SelectLines();
+//	While TableGoodsItems.GetLine() = 1 Do 
+//		
+//		If EmptyValue(TableGoodsItems.Item) = 1 Then  
+//			Continue;
+//		EndIf;    
+//		
+//		ItemCategory = GetCategory(TableGoodsItems.Item);
+//		If EmptyValue(ItemCategory) = 0 Then
+//			
+//			Stream.CommandText = "INSERT INTO oc_product_to_category (product_id,category_id) VALUES ("+TableGoodsItems.ID+","+ItemCategory.Code+")";
+//			Stream.Execute();
+//			
+//		EndIf;
+//			
+//		i=i+1; 
+//		if i%50=0 then
+//			Status("writing items... total: "+i);  
+//		endif;
+//			
+//	EndDo; 
+//	
+//	Log(,"Categories updated"); 
+//	
+//	ODBCDriver.Close();
+//	
+//EndProcedure
+
+
+//*******************************************
+procedure OnOpen() 
+	
+	ReturnStatus(0); 
+	
+	//If Form.Parameter <> "AUTO" Then
+	//	Message("Wrong parameter. QUIT","!");
+	//	Return;
+	//EndIf;    
+	
+	FULLUPDATE = 0; 
+	LastStartHour = RestoreValue("MobileFiles_Hour");
+	LastStartDate = RestoreValue("MobileFiles_Date"); 
+	
+	LastStartHour = Number(StrReplace(LastStartHour,"HOUR",""));
+	
+	Hour = 0; Minute = 0; S = 0;
+	CurrentTime(Hour,Minute,S); 
+	Hour = Number(Hour);
+    
+	//-------------------- журнал событий --------------------  
+	ИмяФайла			= КаталогИБ()+"\SYSLOG";
+	КраткоеИмяЖурнала 	= "opencart-"+СтрЗаменить(ТекущаяДата(),".","_")+".log";
+	мИмяЖурнала			= ""+ИмяФайла+"\"+КраткоеИмяЖурнала; 
+	                                                    
+	//для сохранения вчерашнего лога
+	КраткоеИмяЖурнала0	= "opencart-"+СтрЗаменить(ТекущаяДата()-1,".","_")+".log";
+	                       
+	ФС.УстТекКаталог(ИмяФайла);
+	ИмяФайлаЖурнала = ФС.НайтиПервыйФайл(""+ИмяФайла+"\opencart-*.log");
+	Пока ПустаяСтрока(ИмяФайлаЖурнала) = 0 Цикл    
+		
+		Если (ИмяФайлаЖурнала <> КраткоеИмяЖурнала) И (ИмяФайлаЖурнала <> КраткоеИмяЖурнала0) Тогда 
+			
+			Log("*","Log file deleted: "+ИмяФайлаЖурнала);
+			ФС.УдалитьФайл(ИмяФайлаЖурнала); 
+			
+			FULLUPDATE = 1;
+			
+		КонецЕсли;  
+		
+		ИмяФайлаЖурнала = ФС.НайтиСледующийФайл();   
+		
+	КонецЦикла;  
+	
+	Если ФС.СуществуетФайл(мИмяЖурнала) = 1 Тогда
+		мФайлЖурнала.Открыть(мИмяЖурнала);
+	КонецЕсли;  
+	
+	//UploadDiscounts();
+	
+	LoadOrders();  
+	
+	If FULLUPDATE = 0 Then
+		If Hour>18 Then   
+			//Log("","Exit (too late)");
+			Return;
+		EndIf; 
+		If (Minute > 5) Then //AND (Find("8;10;12;14;16",TrimAll(Hour)) = 0) Then
+			//Log("","Exit (hourly update)");
+			Return;
+		EndIf; 
+	EndIf;
+	
+	Log("","Last start hour: "+LastStartHour+"; current: "+Hour+"; last start date: "+LastStartDate);
+	
+	SaveValue("MobileFiles_Hour",""+"HOUR"+Hour); 
+	SaveValue("MobileFiles_Date",CurDate());
+	             
+	UpdateAll();
+	
+	Log("","Exit");
+	      	
+endProcedure    
+
+//*******************************************
+procedure OnTabCtrlPosChanged(tabNumber,tabValue)
+	Form.UseLayer(tabValue,2);
+endProcedure   
+    
+TableGoodsItems = CreateObject("ValueTable");
+TableSpecialPrice = CreateObject("ValueTable");
+мФайлЖурнала = СоздатьОбъект("Текст"); 
